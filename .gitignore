@@ -22,3 +22,6 @@ runs/
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# 생성물 — report.py 로 언제든 다시 만든다
+pipeline/eda/report.html

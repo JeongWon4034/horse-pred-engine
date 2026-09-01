@@ -9,6 +9,10 @@ dependencies = [
     "pandas>=2.2",
     "pyarrow>=16.0",
     "python-dotenv>=1.0",
+    "torch>=2.13.0",
+    "jupyter>=1.1.1",
+    "ipykernel>=7.3.0",
+    "matplotlib>=3.11.1",
 ]
 
 [project.optional-dependencies]
