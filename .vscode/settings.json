@@ -1,0 +1,5 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/pipeline/.venv/Scripts/python.exe",
+  "jupyter.notebookFileRoot": "${workspaceFolder}/pipeline",
+  "python.terminal.activateEnvironment": true
+}
