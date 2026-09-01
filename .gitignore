@@ -1,0 +1,24 @@
+# 인증
+.env
+*.key
+
+# 수집 데이터 — 용량 크고 재수집 가능
+pipeline/data/
+pipeline/found.json
+
+# 파이썬
+__pycache__/
+*.py[cod]
+.venv/
+.ipynb_checkpoints/
+
+# 모델 산출물
+*.pt
+*.pkl
+*.parquet
+runs/
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store

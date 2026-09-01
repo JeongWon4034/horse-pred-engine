@@ -1,0 +1,18 @@
+[project]
+name = "race-rank"
+version = "0.1.0"
+description = "경주 단위 랭킹 예측 — KRA 공공데이터 수집 + listwise 학습"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.27",
+    "tenacity>=8.2",
+    "pandas>=2.2",
+    "pyarrow>=16.0",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+ml = ["torch>=2.2", "scikit-learn>=1.5"]
+
+[tool.uv]
+package = false
