@@ -19,8 +19,102 @@ class LinearRanker(nn.Module):
         self.w = nn.Linear(dim, 1, bias=False)
         nn.init.zeros_(self.w.weight)
 
-    def forward(self, x, mask):                     # x [B,N,D]
+    def forward(self, x, mask, **_):                # x [B,N,D]  (추가 입력은 무시)
         return self.w(x).squeeze(-1) * mask
+
+
+def mlp_head(d_in: int, hidden: int = 128, dropout: float = 0.2) -> nn.Sequential:
+    """S2~S4 공용 점수 헤드: d_in → hidden → hidden/2 → 1."""
+    return nn.Sequential(
+        nn.Linear(d_in, hidden), nn.GELU(), nn.Dropout(dropout),
+        nn.Linear(hidden, hidden // 2), nn.GELU(), nn.Dropout(dropout),
+        nn.Linear(hidden // 2, 1),
+    )
+
+
+class EmbedRanker(nn.Module):
+    """S2 — 수치 피처 + 범주형(기수·조교사·부마) 임베딩 → MLP.
+
+    cat [B,N,C] 의 열 순서는 vocab_sizes 의 순서와 같다. 0 은 <pad>, 1 <unk>, 2 <rare>.
+    말 ID 는 여기 들어오지 않는다(categorical.EMBED_COLS 참조).
+    """
+
+    def __init__(self, dim: int, vocab_sizes: list[int], emb: int = 16,
+                 hidden: int = 128, dropout: float = 0.2):
+        super().__init__()
+        self.embs = nn.ModuleList([nn.Embedding(v, emb, padding_idx=0) for v in vocab_sizes])
+        self.emb_drop = nn.Dropout(dropout)
+        self.head = mlp_head(dim + emb * len(vocab_sizes), hidden, dropout)
+
+    def encode(self, x, cat):
+        """[B,N,D + C·emb] — 뒤 단계(S3·S4)가 같은 표현 위에 쌓는다."""
+        e = [emb(cat[..., i]) for i, emb in enumerate(self.embs)]
+        return torch.cat([x, self.emb_drop(torch.cat(e, -1))], -1)
+
+    def forward(self, x, mask, cat, **_):
+        return self.head(self.encode(x, cat)).squeeze(-1) * mask
+
+
+class HistoryRanker(nn.Module):
+    """S3 — S2 표현 + 말별 과거 전적 GRU.
+
+    hist [B,N,L,K] 는 오른쪽 패딩(오래된 것부터, hist_len 개가 유효). 실제 말만 골라 GRU 에 한 번에
+    넣고 마지막 유효 스텝의 hidden 을 꺼낸다. 이력이 0개인 말은 0 벡터 + has_hist=0.
+    pack_padded_sequence 는 정렬 비용과 cuDNN 비결정 때문에 쓰지 않는다.
+    """
+
+    def __init__(self, dim: int, vocab_sizes: list[int], k_hist: int, emb: int = 16,
+                 gru: int = 64, hidden: int = 128, dropout: float = 0.2):
+        super().__init__()
+        self.base = EmbedRanker(dim, vocab_sizes, emb, hidden, dropout)
+        self.gru = nn.GRU(k_hist, gru, batch_first=True)
+        self.gru_drop = nn.Dropout(dropout)
+        self.d_out = dim + emb * len(vocab_sizes) + gru + 1
+        self.head = mlp_head(self.d_out, hidden, dropout)
+
+    def seq_state(self, hist, hist_len, mask):
+        """[B,N,gru+1] — GRU 마지막 유효 hidden 과 has_hist 플래그."""
+        B, N, L, K = hist.shape
+        flat = hist.reshape(B * N, L, K)
+        n = hist_len.reshape(B * N)
+        real = (mask.reshape(B * N) > 0) & (n > 0)
+        h = hist.new_zeros(B * N, self.gru.hidden_size)
+        if real.any():
+            out, _ = self.gru(flat[real])                                  # [M, L, gru]
+            last = (n[real] - 1).clamp(min=0)
+            h[real] = out.gather(1, last.view(-1, 1, 1).expand(-1, 1, out.shape[-1])).squeeze(1)
+        has = (n > 0).float().unsqueeze(-1)
+        return torch.cat([self.gru_drop(h), has], -1).reshape(B, N, -1)
+
+    def encode(self, x, mask, cat, hist, hist_len):
+        return torch.cat([self.base.encode(x, cat), self.seq_state(hist, hist_len, mask)], -1)
+
+    def forward(self, x, mask, cat, hist, hist_len, **_):
+        return self.head(self.encode(x, mask, cat, hist, hist_len)).squeeze(-1) * mask
+
+
+class RaceTransformer(nn.Module):
+    """S4 — S3 표현 위에 경주 내 self-attention. 같은 경주 말들이 서로를 본다.
+
+    positional encoding 은 없다 (출전 번호·게이트는 이미 X_chulNo·X_gate_rel 로 들어가 있고,
+    경주 안 순서는 의미가 없다). 패딩 슬롯은 src_key_padding_mask 로 가린다.
+    """
+
+    def __init__(self, dim: int, vocab_sizes: list[int], k_hist: int, d_model: int = 128,
+                 nhead: int = 4, layers: int = 2, dropout: float = 0.2):
+        super().__init__()
+        self.enc = HistoryRanker(dim, vocab_sizes, k_hist, dropout=dropout)
+        self.proj = nn.Sequential(nn.Linear(self.enc.d_out, d_model), nn.GELU(), nn.Dropout(dropout))
+        layer = nn.TransformerEncoderLayer(d_model, nhead, dim_feedforward=d_model * 2, dropout=dropout,
+                                           activation="gelu", batch_first=True, norm_first=True)
+        self.attn = nn.TransformerEncoder(layer, layers, enable_nested_tensor=False)
+        self.norm = nn.LayerNorm(d_model)
+        self.out = nn.Linear(d_model, 1)
+
+    def forward(self, x, mask, cat, hist, hist_len, **_):
+        h = self.proj(self.enc.encode(x, mask, cat, hist, hist_len))     # [B,N,d]
+        h = self.attn(h, src_key_padding_mask=(mask == 0))
+        return self.out(self.norm(h)).squeeze(-1) * mask
 
 
 class TowerRanker(nn.Module):
