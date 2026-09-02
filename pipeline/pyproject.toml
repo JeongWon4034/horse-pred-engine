@@ -20,5 +20,14 @@ dependencies = [
 [project.optional-dependencies]
 ml = ["scikit-learn>=1.5"]
 
+# torch 는 CUDA 13 휠(RTX 4070). 다른 패키지는 PyPI 그대로.
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+
 [tool.uv]
 package = false
