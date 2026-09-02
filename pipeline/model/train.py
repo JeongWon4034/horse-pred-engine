@@ -57,13 +57,13 @@ def build(kind: str, enc, vocabs, dev: str):
     raise NotImplementedError(f"{kind}: 아직 없는 단계")
 
 
-def extras_for(kind: str, df, split: str, vocabs) -> dict[str, np.ndarray]:
+def extras_for(kind: str, df, split: str, vocabs, hist_len: int = 10) -> dict[str, np.ndarray]:
     """단계별 추가 입력(행 단위). pack_races 가 경주 단위로 접는다."""
     out = {}
     if kind in ("embed", "history", "attn"):
         out["cat"] = encode_cats(df, vocabs)
     if kind in ("history", "attn"):
-        out["hist"], out["hist_len"] = history_for(df, split)
+        out["hist"], out["hist_len"] = history_for(df, split, L=hist_len)
     return out
 
 
@@ -90,7 +90,7 @@ def git_commit() -> str:
 
 def run(kind: str, market: bool, epochs: int, bs: int, lr: float, wd: float, patience: int,
         topk: int, seed: int, min_count: int, tag_suffix: str = "",
-        drop_groups: tuple[str, ...] = ()) -> dict:
+        drop_groups: tuple[str, ...] = (), hist_len: int = 10) -> dict:
     torch.manual_seed(seed); np.random.seed(seed)
     torch.use_deterministic_algorithms(True, warn_only=True)
     if torch.cuda.is_available():                 # attention 커널을 결정적 경로로 고정 (S4)
@@ -109,8 +109,8 @@ def run(kind: str, market: bool, epochs: int, bs: int, lr: float, wd: float, pat
         print(f"[ablation] {drop_groups} 제외 → 피처 {len(cols)}개")
     enc = fit_encoder(tr_df, cols)
     vocabs = fit_vocabs(tr_df, EMBED_COLS, min_count) if kind != "linear" else {}
-    tr = to_races(tr_df, enc, extras_for(kind, tr_df, "train", vocabs))
-    va = to_races(va_df, enc, extras_for(kind, va_df, "valid", vocabs))
+    tr = to_races(tr_df, enc, extras_for(kind, tr_df, "train", vocabs, hist_len))
+    va = to_races(va_df, enc, extras_for(kind, va_df, "valid", vocabs, hist_len))
     print(f"[data] {time.time()-t0:.0f}s  피처 {len(cols)}개 → 입력 {enc.dim}차원  "
           f"train {len(tr):,}경주  valid {len(va):,}경주  device={dev}  topk={topk}")
     if vocabs:
@@ -185,6 +185,8 @@ def run(kind: str, market: bool, epochs: int, bs: int, lr: float, wd: float, pat
     memo = f"{STAGE[kind]} {kind}, ep{best['epoch']}/{epochs}, PL topk={topk}, {dev}"
     if drop_groups:
         memo += ", ablation -" + "/".join(drop_groups)
+    if kind in ("history", "attn"):
+        memo += f", 이력 L={hist_len}"
     print("\n[장부]")
     print(ledger_line(best, f"DL {STAGE[kind]} {kind}", n_feat, commit=git_commit(), seed=seed, memo=memo))
     return best
@@ -204,6 +206,7 @@ def main() -> None:
     ap.add_argument("--min-count", type=int, default=5, help="임베딩 어휘: 이 미만 등장은 <rare>")
     ap.add_argument("--tag", default="", help="예측·가중치 파일명 뒤에 붙일 접미사 (변형 실험 구분)")
     ap.add_argument("--drop-group", nargs="*", default=[], help="ablation: 제외할 피처 그룹 (예: F1)")
+    ap.add_argument("--hist-len", type=int, default=10, help="S3/S4 이력 길이 (직전 출전 수)")
     a = ap.parse_args()
     d = DEFAULTS[a.kind]
     run(a.kind, a.market,
@@ -211,7 +214,7 @@ def main() -> None:
         a.lr if a.lr is not None else d["lr"],
         a.wd if a.wd is not None else d["wd"],
         a.patience if a.patience is not None else d["patience"],
-        a.topk, a.seed, a.min_count, a.tag, tuple(a.drop_group))
+        a.topk, a.seed, a.min_count, a.tag, tuple(a.drop_group), a.hist_len)
 
 
 if __name__ == "__main__":
