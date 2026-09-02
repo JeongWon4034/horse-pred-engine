@@ -9,7 +9,7 @@
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
@@ -108,6 +108,7 @@ class Races:
     n: np.ndarray          # [R] 출전 두수
     row_race: np.ndarray   # [len(df)] 각 행이 속한 경주 인덱스
     row_slot: np.ndarray   # [len(df)] 각 행의 경주 내 슬롯
+    extra: dict[str, np.ndarray] = field(default_factory=dict)   # 단계별 추가 입력 [R, MAX_FIELD, ...]
 
     def __len__(self) -> int:
         return len(self.race_id)
@@ -121,13 +122,15 @@ def race_blocks(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
     return starts, ends
 
 
-def to_races(df: pd.DataFrame, enc: Encoder) -> Races:
+def to_races(df: pd.DataFrame, enc: Encoder, extra: dict[str, np.ndarray] | None = None) -> Races:
+    """extra 는 행 단위 배열 {이름: [len(df), ...]} — S2 범주형 인덱스, S3 이력 텐서 등."""
     x_flat = transform(df, enc)
-    return pack_races(df, x_flat)
+    return pack_races(df, x_flat, extra)
 
 
-def pack_races(df: pd.DataFrame, x_flat: np.ndarray) -> Races:
-    """행 단위 피처 행렬 [len(df), D] 을 경주 단위 [R, MAX_FIELD, D] 로 접는다."""
+def pack_races(df: pd.DataFrame, x_flat: np.ndarray,
+               extra: dict[str, np.ndarray] | None = None) -> Races:
+    """행 단위 피처 행렬 [len(df), D] 을 경주 단위 [R, MAX_FIELD, D] 로 접는다. extra 도 같은 규칙."""
     order_col = df["y_ord"].to_numpy()
     starts, ends = race_blocks(df)
     sizes = ends - starts
@@ -141,17 +144,24 @@ def pack_races(df: pd.DataFrame, x_flat: np.ndarray) -> Races:
     row_race = np.repeat(np.arange(R), sizes)
     row_slot = np.arange(len(df)) - np.repeat(starts, sizes)
 
+    x[row_race, row_slot] = x_flat
+    mask[row_race, row_slot] = 1.0
     for i, (s, e) in enumerate(zip(starts, ends)):
-        n = e - s
-        x[i, :n] = x_flat[s:e]
-        mask[i, :n] = 1.0
         ranks = order_col[s:e]
         for k in range(TOPK):
             hit = np.flatnonzero(ranks == k + 1)
             if len(hit):
                 order[i, k] = hit[0]
 
-    return Races(x, mask, order, df["race_id"].to_numpy()[starts], sizes, row_race, row_slot)
+    packed = {}
+    for name, arr in (extra or {}).items():
+        if len(arr) != len(df):
+            raise ValueError(f"extra[{name}] 길이 {len(arr)} ≠ df {len(df)}")
+        full = np.zeros((R, MAX_FIELD) + arr.shape[1:], arr.dtype)
+        full[row_race, row_slot] = arr
+        packed[name] = full
+
+    return Races(x, mask, order, df["race_id"].to_numpy()[starts], sizes, row_race, row_slot, packed)
 
 
 def flatten_scores(scores: np.ndarray, races: Races) -> np.ndarray:
