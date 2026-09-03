@@ -48,7 +48,7 @@
 | 단계 | 쌓은 부품 (전부 PyTorch 표준 레이어) | 역할 | 파라미터 |
 |---|---|---|---:|
 | S1 linear | `nn.Linear` 1개 | 153가중치 곱셈 (조건부 로지스틱) | 153 |
-| S2 embed | + `nn.Embedding` 3개 + MLP 3층 | 기수·조교사·부마 ID → 16차원 | ~40k |
+| S2 embed | + `nn.Embedding` 3개 + MLP 3층 | 기수·조교사·부마 ID → 16차원 | 59k |
 | S3 history | + `nn.GRU` 1개 | 말별 과거 20출전을 순서대로 읽음 | 116k |
 | S4 attn | + `nn.TransformerEncoder` 2층 | 같은 경주 말들이 서로를 봄 | 416k |
 | S5 tower | MLP 3층 × 6축 + Dirichlet 랜덤 가중치 | 슬라이더용 6과목 점수 | — |
