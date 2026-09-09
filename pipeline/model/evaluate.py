@@ -99,10 +99,24 @@ def metrics(df: pd.DataFrame, scores: np.ndarray) -> dict:
             "logloss": race_logloss(df, scores), "ece": ece(df, scores), "brier": brier(df, scores)}
 
 
-def ledger_line(m: dict, model: str, feats: int, commit: str = "—", data: str = "f17ca36",
+def data_commit() -> str:
+    """데이터 기준 커밋 — sync_dataset.sh 가 data/DATA_COMMIT 에 적어둔 것.
+
+    하드코딩하지 않는다. 팀 develop 이 움직이면 장부에 허위 해시가 남아 버린다.
+    파일이 없으면 — 로 내보낸다. sync 를 다시 돌리면 생긴다.
+    """
+    f = Path(__file__).resolve().parent.parent / "data" / "DATA_COMMIT"
+    try:
+        return f.read_text(encoding="utf-8").strip() or "—"
+    except OSError:
+        return "—"
+
+
+def ledger_line(m: dict, model: str, feats: int, commit: str = "—", data: str | None = None,
                 seed: int | str = SEED, memo: str = "", date: str | None = None) -> str:
-    """experiments/ledger.md 표 형식 한 줄."""
+    """experiments/ledger.md 표 형식 한 줄. data 를 바로 주면 그것을, 없으면 DATA_COMMIT 을 쓴다."""
     date = date or pd.Timestamp.today().strftime("%Y-%m-%d")
+    data = data or data_commit()
     return (f"| {date} | {commit} | {data} | {model} | {feats} | {seed} | "
             f"{m['top1']:.1f} | {m['top3']:.1f} | {m['logloss']:.4f} | {m['ece']:.4f} | — | {memo} |")
 

@@ -4,6 +4,7 @@
 #
 #   data/dataset/   ← docs/dataset  (parquet + schema_v2.py 등 빌드 코드)
 #   data/model/     ← docs/model    (common.py, baseline_lgbm.py, model_dl_template.py)
+#   data/DATA_COMMIT ← 팀 develop 의 짧은 해시. 실험 장부에 적을 기준 커밋이다.
 #
 # common.py 는 자기 옆 폴더(../dataset)에서 schema_v2 를 찾으므로
 # 팀 레포와 같은 상대 위치에 두면 수정 없이 그대로 동작한다.
@@ -26,6 +27,9 @@ mkdir -p "$DST"
 rm -rf "$DST/dataset" "$DST/model"
 mv "$TMP/docs/dataset" "$DST/dataset"
 mv "$TMP/docs/model"   "$DST/model"
+
+# 기준 커밋을 파일로 남긴다 — 장부의 "데이터 기준 커밋" 칸이 이걸 읽는다.
+git -C "$TEAM" rev-parse --short origin/develop > "$DST/DATA_COMMIT"
 
 echo "→ 완료"
 du -sh "$DST/dataset" "$DST/model"
