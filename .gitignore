@@ -25,3 +25,8 @@ desktop.ini
 
 # 생성물 — report.py 로 언제든 다시 만든다
 pipeline/eda/report.html
+
+# 챗봇 — 키와 수집물
+chatbot/.env
+chatbot/data/
+chatbot/__pycache__/
