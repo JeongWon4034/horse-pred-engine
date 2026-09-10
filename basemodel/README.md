@@ -523,6 +523,10 @@ uv run python -m basemodel.hf --ckpt ... --push <user>/latte-axis-ranker
 
 ## 9. 실행
 
+> **Windows(SSAFY 노트북)** — 모든 python 명령 앞에 `PYTHONUTF8=1` 을 붙여라.
+> 안 붙이면 cp949 콘솔에서 한글 출력이 깨진다(`run_all.sh`·`sweep_decorr.sh` 는 안에서 설정한다).
+> NVIDIA GPU 가 있으면 `pyproject.toml` 주석대로 cu130 인덱스를 걸 것.
+
 ```bash
 # 0) 데이터 — 팀 레포에서 가져온다 (pipeline/data/, gitignore)
 cd pipeline && TEAM_REPO=/경로/S15P21A304 bash sync_dataset.sh && cd ..

@@ -3,6 +3,9 @@
 # 전부 CPU/MPS 로 돌고 약 25분 걸린다(시드 5개 포함).
 set -e
 cd "$(dirname "$0")"
+
+# Windows(cp949) 콘솔에서 한글 출력이 깨지는 것을 막는다. 맥·리눅스에서는 무해하다.
+export PYTHONUTF8=1
 CK77=artifacts/runs/axis_77_s20260901_final.pt
 CK73=artifacts/runs/axis_73_s20260901_final.pt
 
