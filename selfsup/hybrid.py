@@ -43,6 +43,7 @@ def main():
     ap.add_argument("--bs", type=int, default=256); ap.add_argument("--lr", type=float, default=None)
     ap.add_argument("--wd", type=float, default=1e-2); ap.add_argument("--patience", type=int, default=5)
     ap.add_argument("--topk", type=int, default=3); ap.add_argument("--tag", default=None)
+    ap.add_argument("--pace", action="store_true", help="이력 텐서에 페이스 5열을 붙인다 (P6)")
     a = ap.parse_args()
 
     from model.history import history_for, FEATS as HIST_FEATS
@@ -58,6 +59,9 @@ def main():
 
     def tensors(df, split):
         h, n = history_for(df, split, L=a.hist_len)
+        if a.pace:
+            from .pace import history_pace_for
+            h = np.concatenate([h, history_pace_for(df, a.hist_len)], axis=-1)
         r = D.pack_races(df, D.transform(df, enc), {"hist": h, "hist_len": n})
         T = {"x": torch.from_numpy(r.x), "mask": torch.from_numpy(r.mask), "order": torch.from_numpy(r.order),
              "hist": torch.from_numpy(r.extra["hist"]).float(), "hist_len": torch.from_numpy(r.extra["hist_len"]).long()}
@@ -67,14 +71,15 @@ def main():
     body = Body(enc.dim)
     if ck:
         body.load_state_dict(ck["body"])
-    model = Hybrid(body, len(HIST_FEATS)).to(dev)
+    k_hist = len(HIST_FEATS) + (5 if a.pace else 0)
+    model = Hybrid(body, k_hist).to(dev)
     lr = a.lr or (3e-4 if ck else 1e-3)
     params = list(model.parameters())
     opt = torch.optim.AdamW(params, lr=lr, weight_decay=a.wd)
     R = len(rtr); steps = a.epochs * ((R + a.bs - 1) // a.bs)
     sch = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=lr, total_steps=steps, pct_start=0.25)
     pl = _pl()
-    tag = a.tag or ("hybrid_" + ("pre" if ck else "rand"))
+    tag = a.tag or ("hybrid_" + ("pre" if ck else "rand") + ("_pace" if a.pace else ""))
     print(f"[hybrid {tag}] init={a.init} L={a.hist_len} Din={enc.dim} lr={lr} params={sum(p.numel() for p in params):,} {dev}")
 
     def predict():
