@@ -40,6 +40,28 @@ def prep(day: str):
     d.to_csv(LEDGER, index=False, encoding="utf-8-sig")
 
 
+def refresh(day: str):
+    """발주 직전 갱신 — 오늘 행(날씨·함수율 T-10, 마체중 T-60~90, 끝난 경주 착순)을 API 에서 다시 받아
+    원본 원장의 오늘 행을 통째로 바꾼 뒤 prep 을 다시 한다. 그 다음 build_live.sh → predict."""
+    from ingest.ledger import key, fetch
+    k = key(); rows = []
+    for meet in (1, 2, 3):
+        rows += fetch(k, f"meet={meet}&rc_date={day}")
+    if not rows:
+        raise SystemExit("오늘 행이 안 왔다")
+    new = pd.DataFrame(rows).astype(str)
+    new["meet"] = new["meet"].replace({"1": "서울", "2": "제주", "3": "부경"})
+    bak = LEDGER.with_name("ledger_api_orig.csv")
+    d = pd.read_csv(bak if bak.exists() else LEDGER, dtype=str, low_memory=False)
+    keep = d[d["rcDate"].astype(str) != day]
+    new = new.reindex(columns=d.columns, fill_value="")
+    d2 = pd.concat([keep, new], ignore_index=True)
+    d2.to_csv(bak, index=False, encoding="utf-8-sig")
+    d2.to_csv(LEDGER, index=False, encoding="utf-8-sig")
+    print(f"{day} 행 {len(d[d['rcDate'].astype(str) == day])} → {len(new)} 교체 ({time.strftime('%H:%M')})")
+    prep(day)
+
+
 def _pool_from_live(target_day: int) -> pd.DataFrame:
     """이력 풀을 실시간 빌드 parquet 에서 만든다 — 팀 사본은 5월까지라 여름 전적이 빠진다.
     target_day 이전 행만. game 도 넣는다(예측 서빙이지 평가가 아니다 — 정원 live 도 같은 판단)."""
@@ -135,31 +157,41 @@ def predict(day: str, meet: str):
     tgt["p_s3"] = np.mean(probs, axis=0)
     print(f"이력: 평균 {n.mean():.1f}/20, 0개 {np.mean(n == 0)*100:.0f}%")
 
-    # ── LightGBM 73 (팀 기준선 파라미터, 200 라운드) — 학습 40초
-    tr_e, tg_e = D.C.encode(tr, tgt, cols)
+    # ── LightGBM 73 + 마체중 3 (P7: logloss −0.009). 마체중은 당일 계체값 — refresh 로 최신화된다
+    from .bodyweight import attach, FEATS as BW
+    tr_bw, tg_bw = attach(tr), attach(tgt)
+    print(f"마체중 충전: 오늘 {tg_bw['bw'].notna().mean()*100:.0f}%")
+    tr_e, tg_e = D.C.encode(tr_bw, tg_bw, cols + BW)
+    cols_lgb = cols + BW
     g = tr_e.groupby("race_id", sort=False).size().to_numpy()
     m = lgb.train(dict(objective="lambdarank", metric="ndcg", learning_rate=0.05, num_leaves=31,
                        min_data_in_leaf=100, feature_fraction=0.8, bagging_fraction=0.8, bagging_freq=1,
                        verbose=-1, seed=0),
-                  lgb.Dataset(tr_e[cols], label=tr_e["y_rel"], group=g), num_boost_round=200)
-    tgt["p_lgb"] = win_probs(tgt, m.predict(tg_e[cols]))
+                  lgb.Dataset(tr_e[cols_lgb], label=tr_e["y_rel"], group=g), num_boost_round=200)
+    tgt["p_lgb"] = win_probs(tgt, m.predict(tg_e[cols_lgb]))
 
     # ── selfsup: 마스크 사전학습 몸통(mask_base.pt) → 그 자리에서 미세조정(valid logloss 로 epoch 선택) → 점수
     tgt["p_ssl"] = _selfsup_probs(tr, tgt, cols, dev)
 
+    tgt["p_ens"] = (tgt["p_s3"] + tgt["p_ssl"] + tgt["p_lgb"]) / 3          # 세 모델 확률 평균
     stamp = time.strftime("%Y-%m-%d %H:%M:%S")
-    lines = [f"# 출발 전 예측 — {day} meet {meet}", f"", f"예측 시각 **{stamp}** (KST). 모델: S3 L20 seed 5 평균 (05d8230 재측정본) · 사전학습(mask_base) 미세조정 seed 1 · LightGBM 73 (재학습).",
+    lines = [f"# 출발 전 예측 — {day} meet {meet}", f"", f"예측 시각 **{stamp}** (KST). 모델: S3 L20 seed 5 평균 (05d8230 재측정본) · 사전학습(mask_base) 미세조정 seed 1 · LightGBM 73+마체중3 (재학습). 앙상블 = 세 확률 평균.",
              "이력 풀: 실시간 원장 빌드(train∪valid∪test∪new∪game, 당일 이전). 결과가 API 에 오르면 아래 표에 착순을 채운다.", ""]
     for rid, grp in tgt.groupby("race_id", sort=False):
-        r = grp.sort_values("p_s3", ascending=False)
-        lines += [f"## {rid}  ({int(grp['X_rcDist'].iloc[0])}m · {len(grp)}두)", "",
-                  "| 순위 | 마번 | 마명 | S3 P(1착) | 사전학습 P(1착) | LGB P(1착) | 실제 착순 |", "|---:|---:|---|---:|---:|---:|---:|"]
+        r = grp.sort_values("p_ens", ascending=False)
+        top = r["p_ens"].to_numpy(); gap = (top[0] - top[1]) * 100 if len(top) > 1 else 0
+        conf = "확신" if gap >= 10 else ("보통" if gap >= 4 else "혼전")
+        lines += [f"## {rid}  ({int(grp['X_rcDist'].iloc[0])}m · {len(grp)}두 · 1-2위 격차 {gap:.1f}%p → {conf})", "",
+                  "| 순위 | 마번 | 마명 | 앙상블 | S3 | 사전학습 | LGB | 실제 착순 |", "|---:|---:|---|---:|---:|---:|---:|---:|"]
         for k, (_, h) in enumerate(r.iterrows(), 1):
-            lines.append(f"| {k} | {int(h['X_chulNo'])} | {h.get('hrName', '')} | {h['p_s3']*100:.1f}% | {h['p_ssl']*100:.1f}% | {h['p_lgb']*100:.1f}% | |")
+            lines.append(f"| {k} | {int(h['X_chulNo'])} | {h.get('hrName', '')} | {h['p_ens']*100:.1f}% | {h['p_s3']*100:.1f}% | {h['p_ssl']*100:.1f}% | {h['p_lgb']*100:.1f}% | |")
         lines.append("")
-    out = OUT / f"pred_{day}_m{meet}.md"
+    hhmm = time.strftime("%H%M")
+    out = OUT / f"pred_{day}_m{meet}_{hhmm}.md"                    # 시각별로 남긴다 — 덮어쓰지 않는다
     out.write_text("\n".join(lines), encoding="utf-8")
-    tgt[["race_id", "hrNo", "X_chulNo", "p_s3", "p_ssl", "p_lgb"]].to_parquet(OUT / f"pred_{day}_m{meet}.parquet", index=False)
+    cols_out = ["race_id", "hrNo", "X_chulNo", "p_s3", "p_ssl", "p_lgb", "p_ens"]
+    tgt[cols_out].to_parquet(OUT / f"pred_{day}_m{meet}_{hhmm}.parquet", index=False)
+    tgt[cols_out].to_parquet(OUT / f"pred_{day}_m{meet}.parquet", index=False)   # 최신본 (결과 대조용)
     print("\n".join(lines)); print(f"→ {out}")
 
 
@@ -167,5 +199,7 @@ if __name__ == "__main__":
     cmd = sys.argv[1]
     if cmd == "prep":
         prep(sys.argv[2])
+    elif cmd == "refresh":
+        refresh(sys.argv[2])
     elif cmd == "predict":
         predict(sys.argv[2], sys.argv[3])
