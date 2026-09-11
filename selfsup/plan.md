@@ -1,4 +1,4 @@
-# ssl/ — 라벨 없이 먼저 배우고, 랭킹은 나중에 (김민지)
+# selfsup/ — 라벨 없이 먼저 배우고, 랭킹은 나중에 (김민지)
 
 > 초안 2026-09-11. 팀 레포 `docs/model/plan_dl_minji.md`(결합확률) 와 별개 축이다. 그쪽은 "조합확률 공식"을
 > 고쳤고, 이쪽은 정원 축이 멈춘 자리 — **"73피처로 top-1 을 LightGBM 보다 올릴 수 있나"** — 를 다른 길로 다시 간다.
@@ -208,7 +208,7 @@ P1/P2 중 나은 쪽 하나로만 돈다. 4조건 × seed 5.
 
 ## 8. 장부
 
-`ssl/ledger.md`. 실험 1회 = 한 줄.
+`selfsup/ledger.md`. 실험 1회 = 한 줄.
 
 ```
 | 날짜 | 커밋 | 데이터 기준 | 단계 | 사전학습(풀·목적·epoch) | 미세조정(피처·동결) | seed수 | top-1 평균±편차 | top-3 | logloss | CI vs LGB | 선형탐침 | 메모 |
@@ -219,9 +219,9 @@ P1/P2 중 나은 쪽 하나로만 돈다. 4조건 × seed 5.
 ## 9. 파일 · 반출
 
 ```
-ssl/
+selfsup/
   plan.md        이 문서
-  ssl/           Body · RankHead · 사전학습 2종 · 미세조정 · 선형 탐침 (건모 basemodel/ 과 같은 배치)
+  selfsup/       Body · RankHead · 사전학습 2종 · 미세조정 · 선형 탐침 (건모 basemodel/ 과 같은 배치)
   ledger.md      장부
   runs/          .pt · 예측 parquet — gitignore
 ```
