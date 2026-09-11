@@ -165,10 +165,11 @@ def predict(day: str, meet: str):
     tr_e, tg_e = D.C.encode(tr_bw, tg_bw, cols + BW + TRF)
     cols_lgb = cols + BW + TRF
     g = tr_e.groupby("race_id", sort=False).size().to_numpy()
+    w_rec = np.where((tr_e["rcDate"] // 10000) >= 2023, 3.0, 1.0)     # P11 최근 3년 ×3 (+0.88 [−0.08, +1.91])
     m = lgb.train(dict(objective="lambdarank", metric="ndcg", learning_rate=0.05, num_leaves=31,
                        min_data_in_leaf=100, feature_fraction=0.8, bagging_fraction=0.8, bagging_freq=1,
                        verbose=-1, seed=0),
-                  lgb.Dataset(tr_e[cols_lgb], label=tr_e["y_rel"], group=g), num_boost_round=200)
+                  lgb.Dataset(tr_e[cols_lgb], label=tr_e["y_rel"], group=g, weight=w_rec), num_boost_round=200)
     tgt["p_lgb"] = win_probs(tgt, m.predict(tg_e[cols_lgb]))
 
     # ── selfsup: 마스크 사전학습 몸통(mask_base.pt) → 그 자리에서 미세조정(valid logloss 로 epoch 선택) → 점수
@@ -176,7 +177,7 @@ def predict(day: str, meet: str):
 
     tgt["p_ens"] = (tgt["p_s3"] + tgt["p_ssl"] + tgt["p_lgb"]) / 3          # 세 모델 확률 평균
     stamp = time.strftime("%Y-%m-%d %H:%M:%S")
-    lines = [f"# 출발 전 예측 — {day} meet {meet}", f"", f"예측 시각 **{stamp}** (KST). 모델: S3 L20 seed 5 평균 (05d8230 재측정본) · 사전학습(mask_base) 미세조정 seed 1 · LightGBM 73+마체중3+조교8 (재학습). 앙상블 = 세 확률 평균.",
+    lines = [f"# 출발 전 예측 — {day} meet {meet}", f"", f"예측 시각 **{stamp}** (KST). 모델: S3 L20 seed 5 평균 (05d8230 재측정본) · 사전학습(mask_base) 미세조정 seed 1 · LightGBM 73+마체중3+조교8 · 최근3년×3 가중 (재학습). 앙상블 = 세 확률 평균.",
              "이력 풀: 실시간 원장 빌드(train∪valid∪test∪new∪game, 당일 이전). 결과가 API 에 오르면 아래 표에 착순을 채운다.", ""]
     for rid, grp in tgt.groupby("race_id", sort=False):
         r = grp.sort_values("p_ens", ascending=False)
