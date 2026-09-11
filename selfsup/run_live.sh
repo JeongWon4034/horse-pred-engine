@@ -6,5 +6,6 @@ DAY=$1; MEET=$2
 R="PYTHONUTF8=1 uv run --project pipeline python"
 eval $R -m selfsup.live refresh $DAY
 eval $R -m selfsup.bodyweight build
+eval $R -m selfsup.training build
 (cd pipeline && TEAM_REPO=/c/git/S15P21A304 bash build_live.sh > data/build_live_log.txt 2>&1)
 eval $R -m selfsup.live predict $DAY $MEET
