@@ -110,7 +110,8 @@ def pretrain(a):
         print(f"  ep{ep:02d} loss {tot / n:.4f}  {time.time() - t0:.0f}s")
 
     out = D.RUNS / (a.out or f"{a.obj}_{a.pool}.pt")
-    torch.save({"body": body.state_dict(), "enc": enc, "cols": cols, "args": vars(a),
+    torch.save({"body": body.state_dict(), "enc": enc, "cols": cols,
+                "args": {k: v for k, v in vars(a).items() if k != "fn"},   # 함수 참조는 피클에 안 넣는다
                 "commit": git_commit(), "data": D.DATA.joinpath("DATA_COMMIT").read_text().strip()}, out)
     print(f"→ {out}")
 
