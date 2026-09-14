@@ -5,6 +5,9 @@
 
 담당: 이건모 · 데이터 `docs/dataset` schema v2.2.0 (2010~2026 · 445,351행) · 채점기 `docs/model/common.py`
 
+> 제품(front/back/DB)에 **어떻게 붙는가**는 [INTEGRATION.md](INTEGRATION.md) 에 따로 적었다 —
+> 지금 끊겨 있는 네 곳과 채워야 할 순서.
+
 ---
 
 ## 0. 이 폴더는 무엇이고, `pipeline/` 과 어떻게 다른가
