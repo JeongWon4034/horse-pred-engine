@@ -7,7 +7,8 @@
 
 > 제품(front/back/DB)에 **어떻게 붙는가**는 두 문서로 갈라 두었다 —
 > [INTEGRATION.md](INTEGRATION.md) 는 지금 끊겨 있는 네 곳의 진단,
-> [AI-CONTRACT.md](AI-CONTRACT.md) 는 백/프런트가 그대로 구현할 실행 명세다.
+> [AI-CONTRACT.md](AI-CONTRACT.md) 는 백/프런트가 그대로 구현할 실행 명세,
+> [DELIVERY.md](DELIVERY.md) 는 무엇을 어떤 형식으로 누구에게 주는지다.
 
 ---
 
